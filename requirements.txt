@@ -1,0 +1,18 @@
+# Web スクレイピング関連
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# データ処理関連
+pandas==2.1.1
+openpyxl==3.1.2
+PyYAML==6.0.1
+
+# GUI関連
+pillow==10.0.1
+
+# 開発ツール
+black==23.9.1
+flake8==6.1.0
+pytest==7.4.2
+pytest-cov==4.1.0

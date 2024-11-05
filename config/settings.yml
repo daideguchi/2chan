@@ -1,0 +1,13 @@
+# アプリケーション設定
+app:
+  name: "2ch Scraper Pro"
+  version: "1.0.0"
+
+scraping:
+  default_delay: 1.0
+  max_workers: 3
+  min_length: 0
+
+logging:
+  level: "INFO"
+  file: "logs/scraper.log

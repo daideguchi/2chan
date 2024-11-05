@@ -1,0 +1,9 @@
+default:
+  post_patterns:
+    - '^(\d+\s*[:：]\s*)?(?:イッチ|ID.*?|スレ主)(?:[:：]|\s+)(.*?)$'
+    - '^(\d+\s*[:：]\s*)?((?:スレ民\d*|名無し|[^\s:：]*):?[：:])?\s*(.*?)$'
+  post_selectors:
+    - 'div.post'
+    - 'div.comment'
+    - 'p.message'
+    - 'div.comentbox'
