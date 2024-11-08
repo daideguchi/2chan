@@ -9,6 +9,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+import textwrap
 
 @dataclass
 class ScrapingResult:
@@ -18,6 +19,21 @@ class ScrapingResult:
     content: str
     char_count: int
     timestamp: str
+
+class TextProcessor:
+    """テキスト処理を担当するクラス"""
+    def __init__(self, use_line_break: bool = False):
+        self.use_line_break = use_line_break
+
+    def process_content(self, content: str) -> str:
+        """テキストを処理して整形する"""
+        # >>数字 形式の引用を削除
+        content = re.sub(r'>>+\d+\s*', '', content)
+        
+        # 改行オプションが有効な場合のみ23文字改行を適用
+        if self.use_line_break:
+            content = '\n'.join(textwrap.wrap(content, width=23, replace_whitespace=False))
+        return content.strip()
 
 class ScrapingPattern:
     """スクレイピングパターンを管理するクラス"""
@@ -52,7 +68,7 @@ class ScrapingPattern:
                     'p.message',
                     'div.comentbox',
                     'div.message',
-                    'div.thread'  # スレッド全体を取得する場合
+                    'div.thread'
                 ]
             }
         }
@@ -61,6 +77,7 @@ class Scraper:
     """スクレイピングの実行を担当するクラス"""
     def __init__(self, pattern_config: Optional[Path] = None, proxy_manager=None):
         self.pattern_manager = ScrapingPattern(pattern_config)
+        self.text_processor = TextProcessor()
         if proxy_manager:
             self.session = proxy_manager.get_session()
         else:
@@ -69,16 +86,18 @@ class Scraper:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             })
 
+    def set_line_break_option(self, use_line_break: bool):
+        """改行オプションを設定"""
+        self.text_processor.use_line_break = use_line_break
+
     def process_post(self, text: str) -> Optional[ScrapingResult]:
         """投稿テキストを処理"""
         try:
-            # デバッグ用にテキストの内容を出力
             logging.debug(f"処理中のテキスト: {text[:200]}")
             
-            # 番号と内容を抽出するパターンを修正
             patterns = [
-                r'^\s*(\d+).*?\n*(.*?)(?=\d+[^\d]|$)',  # 基本パターン
-                r'^\s*(\d+)[^\d]+(.*?)(?=\n\d+[^\d]|$)',  # 別のパターン
+                r'^\s*(\d+).*?\n*(.*?)(?=\d+[^\d]|$)',
+                r'^\s*(\d+)[^\d]+(.*?)(?=\n\d+[^\d]|$)',
             ]
             
             for pattern in patterns:
@@ -87,26 +106,25 @@ class Scraper:
                     number = match.group(1)
                     content = match.group(2).strip()
                     
-                    # >>で始まる行や日付のみの行は除外
-                    if content.startswith('>>') or re.match(r'^\d{2}/\d{2}/\d{2}', content):
-                        continue
+                    # テキスト処理を適用
+                    content = self.text_processor.process_content(content)
                     
-                    logging.debug(f"マッチ: 番号={number}, 内容={content}")
-                    
-                    return ScrapingResult(
-                        url='',
-                        speaker=number,
-                        content=content,
-                        char_count=len(content),
-                        timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    )
+                    if content:
+                        logging.debug(f"マッチ: 番号={number}, 内容={content}")
+                        
+                        return ScrapingResult(
+                            url='',
+                            speaker=number,
+                            content=content,
+                            char_count=len(content),
+                            timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        )
             
             return None
             
         except Exception as e:
             logging.error(f"投稿処理エラー: {e}")
             return None
-
 
     def scrape_url(self, url: str, min_length: int = 0) -> List[ScrapingResult]:
         """単一URLをスクレイピング"""
@@ -119,24 +137,73 @@ class Scraper:
             soup = BeautifulSoup(response.text, 'html.parser')
             results = []
 
-            # 投稿を探す（div class="res"）
-            posts = soup.find_all('div', class_='res')
-            
-            for post in posts:
-                # ヘッダー部分から投稿番号を取得
-                header = post.find('div', class_='t_h')
-                if header:
-                    number = header.find('span', class_='resnum')
-                    if number:
+            # あにまんch掲示板のパターン
+            if 'bbs.animanch.com' in url:
+                article = soup.find('article', id='reslist')
+                if article:
+                    posts = article.find_all('li', class_='list-group-item')
+                    
+                    for post in posts:
+                        if post.find('div', class_='disabled'):
+                            continue
+                        
+                        header = post.find('div', class_='resheader')
+                        if not header:
+                            continue
+                            
+                        number = header.find('span', class_='resnumber')
+                        if not number:
+                            continue
                         number = number.text.strip()
                         
-                        # 本文を取得
+                        body = post.find('div', class_='resbody')
+                        if not body:
+                            continue
+                            
+                        content_parts = []
+                        for p in body.find_all('p'):
+                            text = p.get_text().strip()
+                            content_parts.append(text)
+                        
+                        content = '\n'.join(content_parts).strip()
+                        # テキスト処理を適用
+                        content = self.text_processor.process_content(content)
+                        
+                        if content and len(content) >= min_length:
+                            result = ScrapingResult(
+                                url=url,
+                                speaker=number, 
+                                content=content,
+                                char_count=len(content),
+                                timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            )
+                            results.append(result)
+                            logging.info(f"投稿を抽出: {number} | {content[:50]}...")
+
+            # あにまんchのブログ記事パターン
+            elif 'animanch.com' in url:
+                intro_section = soup.find('section', id='introtext')
+                main_section = soup.find('section', id='maintext')
+                
+                posts = []
+                if intro_section:
+                    posts.extend(intro_section.find_all('div', class_='res'))
+                if main_section:
+                    posts.extend(main_section.find_all('div', class_='res'))
+                    
+                for post in posts:
+                    header = post.find('div', class_='t_h')
+                    if header:
+                        number = header.find('span', class_='resnum')
+                        if not number:
+                            continue
+                        number = number.text.strip()
+                        
                         body = post.find('div', class_='t_b')
                         if body:
                             content = body.get_text().strip()
-                            
-                            # >>形式の引用を除去
-                            content = re.sub(r'>>+\d+\s*', '', content).strip()
+                            # テキスト処理を適用
+                            content = self.text_processor.process_content(content)
                             
                             if content and len(content) >= min_length:
                                 result = ScrapingResult(
@@ -147,15 +214,66 @@ class Scraper:
                                     timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                 )
                                 results.append(result)
-                                logging.info(f"投稿を抽出: {number} | {content[:50]}...")
-            
+                
+                # コメント欄のレス抽出
+                comment_area = soup.find('div', id='commentarea')
+                if comment_area:
+                    comments = comment_area.find_all('div', class_='commentwrap')
+                    for comment in comments:
+                        number = comment.find('span', class_='commentnumber')
+                        if not number:
+                            continue
+                        number = number.text.strip()
+                        
+                        body = comment.find('div', class_='commentbody')
+                        if body:
+                            content_parts = []
+                            for text in body.stripped_strings:
+                                if not text.startswith('>>'):
+                                    content_parts.append(text)
+                            
+                            content = ' '.join(content_parts).strip()
+                            # テキスト処理を適用
+                            content = self.text_processor.process_content(content)
+                            
+                            if content and len(content) >= min_length:
+                                result = ScrapingResult(
+                                    url=url,
+                                    speaker=number,
+                                    content=content,
+                                    char_count=len(content),
+                                    timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                )
+                                results.append(result)
+
+            # その他の掲示板パターン
+            else:
+                posts = soup.find_all('div', class_='res')
+                for post in posts:
+                    header = post.find('div', class_='t_h')
+                    if header:
+                        number = header.find('span', class_='resnum')
+                        if number:
+                            number = number.text.strip()
+                            body = post.find('div', class_='t_b')
+                            if body:
+                                content = body.get_text().strip()
+                                # テキスト処理を適用
+                                content = self.text_processor.process_content(content)
+                                
+                                if content and len(content) >= min_length:
+                                    result = ScrapingResult(
+                                        url=url,
+                                        speaker=number,
+                                        content=content,
+                                        char_count=len(content),
+                                        timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                    )
+                                    results.append(result)
+
             logging.info(f"スクレイピング完了 - {len(results)} 件の結果")
             return results
-                
-        except Exception as e:
-            logging.error(f"スクレイピングエラー ({url}): {e}")
-            raise
-                
+
         except Exception as e:
             logging.error(f"スクレイピングエラー ({url}): {e}")
             raise
@@ -200,3 +318,21 @@ def setup_logger(log_path: Optional[Path] = None):
             logging.StreamHandler()
         ]
     )
+
+if __name__ == "__main__":
+    # ロガーの設定
+    setup_logger()
+    
+    # スクレイパーの使用例
+    scraper = Scraper()
+    scraper.set_line_break_option(True)  # 23文字改行を有効化
+    
+    try:
+        results = scraper.scrape_url("https://example.com", min_length=10)
+        for result in results:
+            print(f"発言番号: {result.speaker}")
+            print(f"内容: {result.content}")
+            print(f"文字数: {result.char_count}")
+            print("---")
+    except Exception as e:
+        logging.error(f"スクレイピング実行エラー: {e}")

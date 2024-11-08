@@ -22,6 +22,7 @@ from .components.statistics import StatisticsWindow
 from .components.log_window import LogWindow
 from ..scraper.core import Scraper, ScrapingResult
 from ..config.settings import SettingsManager
+from typing import List, Optional, Dict 
 
 class ThreadScraperGUI:
     def __init__(self):
@@ -49,334 +50,19 @@ class ThreadScraperGUI:
         self.create_url_input()
         self.create_options()
         self.create_progress_area()
-        self.create_results_area()  # Treeviewの作成
-
-        # エクスポートマネージャーの初期化
-        self.export_manager = ExportManager(self.main_frame, self.tree)
-        
-        # コンテキストメニューの作成
-        self.create_context_menu()
+        self.create_results_area()
+        self.create_context_menu()  # コンテキストメニューの作成
         
         # 設定の読み込み
         self.load_settings()
-    
-    def create_main_frame(self):
-        """メインフレームの作成"""
-        self.main_frame = ttk.Frame(self.root, padding="10")
-        self.main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # グリッド設定
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        self.main_frame.columnconfigure(1, weight=1)
-        self.main_frame.rowconfigure(3, weight=1)
-    
-    def create_url_input(self):
-        """URL入力エリアの作成"""
-        url_frame = ttk.LabelFrame(self.main_frame, text="URL入力", padding="5")
-        url_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        # URLテキストエリア
-        self.url_text = scrolledtext.ScrolledText(url_frame, height=5)
-        self.url_text.grid(row=0, column=0, padx=5, pady=5, sticky=(tk.W, tk.E))
-        
-        # ボタンフレーム
-        button_frame = ttk.Frame(url_frame)
-        button_frame.grid(row=0, column=1, padx=5, pady=5)
-        
-        self.start_button = ttk.Button(
-            button_frame,
-            text="スクレイピング開始",
-            command=self.start_scraping
-        )
-        self.start_button.grid(row=0, column=0, pady=2)
-        
-        self.stop_button = ttk.Button(
-            button_frame,
-            text="停止",
-            command=self.stop_scraping,
-            state=tk.DISABLED
-        )
-        self.stop_button.grid(row=1, column=0, pady=2)
-    
-    def create_options(self):
-        """オプションエリアの作成"""
-        options_frame = ttk.LabelFrame(self.main_frame, text="オプション設定", padding="5")
-        options_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        # 同時実行数
-        ttk.Label(options_frame, text="同時実行数:").grid(row=0, column=0, padx=5)
-        self.workers_var = tk.StringVar(value="3")
-        ttk.Spinbox(
-            options_frame,
-            from_=1,
-            to=10,
-            width=5,
-            textvariable=self.workers_var
-        ).grid(row=0, column=1, padx=5)
-        
-        # 待機時間
-        ttk.Label(options_frame, text="待機時間(秒):").grid(row=0, column=2, padx=5)
-        self.delay_var = tk.StringVar(value="1.0")
-        ttk.Spinbox(
-            options_frame,
-            from_=0.0,
-            to=10.0,
-            increment=0.1,
-            width=5,
-            textvariable=self.delay_var
-        ).grid(row=0, column=3, padx=5)
-        
-        # 最小文字数
-        ttk.Label(options_frame, text="最小文字数:").grid(row=0, column=4, padx=5)
-        self.min_length_var = tk.StringVar(value="0")
-        ttk.Spinbox(
-            options_frame,
-            from_=0,
-            to=1000,
-            width=5,
-            textvariable=self.min_length_var
-        ).grid(row=0, column=5, padx=5)
-    
-    def create_progress_area(self):
-        """進捗表示エリアの作成"""
-        progress_frame = ttk.LabelFrame(self.main_frame, text="進捗状況", padding="5")
-        progress_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(
-            progress_frame,
-            variable=self.progress_var,
-            mode='determinate'
-        )
-        self.progress_bar.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=5, pady=5)
-        
-        self.status_label = ttk.Label(progress_frame, text="待機中")
-        self.status_label.grid(row=1, column=0, sticky=tk.W, padx=5)
-   
-    def create_results_area(self):
-        """結果表示エリアの作成"""
-        self.results_frame = ttk.LabelFrame(self.main_frame, text="スクレイピング結果", padding="5")
-        self.results_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
-        
-        # スクロール可能なフレームを作成
-        self.tree_frame = ttk.Frame(self.results_frame)
-        self.tree_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        
-        # Treeviewの作成
-        columns = ('num', 'content', 'chars')
-        self.tree = ttk.Treeview(
-            self.tree_frame,
-            columns=columns,
-            show='headings',
-            selectmode='extended'
-        )
-        
-        # スクロールバーの設定
-        self.vsb = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview)
-        self.hsb = ttk.Scrollbar(self.results_frame, orient="horizontal", command=self.tree.xview)
-        
-        # Treeviewとスクロールバーの関連付け
-        self.tree.configure(yscrollcommand=self.vsb.set, xscrollcommand=self.hsb.set)
-        
-        # グリッドの設定
-        self.tree_frame.columnconfigure(0, weight=1)
-        self.tree_frame.rowconfigure(0, weight=1)
-        
-        self.tree.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        self.vsb.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        self.hsb.grid(row=2, column=0, sticky=(tk.E, tk.W))
-        
-        # 列の設定
-        self.tree.heading('num', text='番号')
-        self.tree.heading('content', text='発言内容')
-        self.tree.heading('chars', text='文字数')
-        
-        self.tree.column('num', width=50, minwidth=50, anchor=tk.W)
-        self.tree.column('content', width=800, minwidth=200, anchor=tk.W)
-        self.tree.column('chars', width=70, minwidth=70, anchor=tk.E)
-        
-        # フィルターフレームの作成と配置（最上部）
-        self.filter_frame = FilterFrame(self.results_frame, self.tree)
-        self.filter_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        # ここの'd'を削除
-        
-        # ボタンフレーム（最下部）
-        button_frame = ttk.Frame(self.results_frame)
-        button_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        # エクスポートボタン
-        ttk.Button(
-            button_frame,
-            text="CSVとして出力",
-            command=lambda: self.export_results("csv")
-        ).pack(side='left', padx=5)
-        
-        ttk.Button(
-            button_frame,
-            text="Excelとして出力",
-            command=lambda: self.export_results("excel")
-        ).pack(side='left', padx=5)
-        
-        # グリッドの重みを設定
-        self.results_frame.columnconfigure(0, weight=1)
-        self.results_frame.rowconfigure(1, weight=1)  # Treeframeに重みを設定
-        
-        # テスト用のデータを追加（デバッグ時のみ）
-        self.tree.insert('', tk.END, values=('テスト', 'これはテストデータです', '10'))
 
-    # メニューの作成メソッドを追加
-    def create_menu(self):
-        """メニューバーの作成"""
-        self.menubar = tk.Menu(self.root)
-        self.root.config(menu=self.menubar)
-        
-        # ファイルメニュー
-        file_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label="ファイル", menu=file_menu)
-        file_menu.add_command(label="URLリストを開く", command=self.load_url_list)
-        file_menu.add_command(label="結果を保存", command=self.save_results)
-        file_menu.add_separator()
-        file_menu.add_command(label="終了", command=self.root.quit)
-        
-        # ツールメニュー
-        tools_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label="ツール", menu=tools_menu)
-        tools_menu.add_command(label="プロキシ設定", command=self.show_proxy_settings)
-        tools_menu.add_command(label="一般設定", command=self.show_settings)
-    
-    def export_results(self, format_type: str):
-        """結果をエクスポート
-        Args:
-            format_type (str): "csv" または "excel"
-        """
-        if not self.tree.get_children():
-            messagebox.showerror("エラー", "エクスポートする結果がありません。")
-            return
-
-        if format_type == "csv":
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".csv",
-                filetypes=[("CSVファイル", "*.csv")],
-                title="CSVとして保存"
-            )
-            if file_path:
-                try:
-                    data = []
-                    for item in self.tree.get_children():
-                        values = self.tree.item(item)['values']
-                        data.append({
-                            '番号': values[0],
-                            '発言内容': values[1],
-                            '文字数': values[2]
-                        })
-                    
-                    with open(file_path, 'w', encoding='utf-8', newline='') as f:
-                        writer = csv.DictWriter(f, fieldnames=['番号', '発言内容', '文字数'])
-                        writer.writeheader()
-                        writer.writerows(data)
-                    
-                    messagebox.showinfo("完了", "CSVファイルを保存しました")
-                    logging.info(f"CSVファイルを保存: {file_path}")
-                    
-                except Exception as e:
-                    logging.error(f"CSVファイルの保存に失敗: {e}")
-                    messagebox.showerror("エラー", f"ファイルの保存に失敗しました: {e}")
-
-        elif format_type == "excel":
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".xlsx",
-                filetypes=[("Excelファイル", "*.xlsx")],
-                title="Excelとして保存"
-            )
-            if file_path:
-                try:
-                    data = []
-                    for item in self.tree.get_children():
-                        values = self.tree.item(item)['values']
-                        data.append({
-                            '番号': values[0],
-                            '発言内容': values[1],
-                            '文字数': values[2]
-                        })
-                    
-                    df = pd.DataFrame(data)
-                    df.to_excel(file_path, index=False)
-                    
-                    messagebox.showinfo("完了", "Excelファイルを保存しました")
-                    logging.info(f"Excelファイルを保存: {file_path}")
-                    
-                except Exception as e:
-                    logging.error(f"Excelファイルの保存に失敗: {e}")
-                    messagebox.showerror("エラー", f"ファイルの保存に失敗しました: {e}")
-    
-    # プロキシ設定を表示するメソッドを追加
-    def show_proxy_settings(self):
-        """プロキシ設定ダイアログを表示"""
-        dialog = ProxyDialog(self.root, self.proxy_manager)
-        self.root.wait_window(dialog.dialog)
-        
-        if dialog.result:
-            # スクレイパーのセッションを更新
-            self.scraper.update_session(self.proxy_manager.get_session())
-
-    
-    def create_context_menu(self):
-        """コンテキストメニューの作成"""
-        self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="コピー", command=self.copy_selected)
-        self.context_menu.add_command(label="選択行を削除", command=self.delete_selected)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="すべて選択", command=self.select_all)
-        
-        self.tree.bind("<Button-3>", self.show_context_menu)
-    
-    def show_context_menu(self, event):
-        """コンテキストメニューを表示"""
-        self.context_menu.post(event.x_root, event.y_root)
-    
-    def copy_selected(self):
-        """選択された行をクリップボードにコピー"""
-        selected = self.tree.selection()
-        if not selected:
-            return
-        
-        text = "\n".join(
-            "\t".join(str(x) for x in self.tree.item(item)['values'])
-            for item in selected
-        )
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-    
-    def delete_selected(self):
-        """選択された行を削除"""
-        selected = self.tree.selection()
-        if not selected:
-            return
-        
-        if messagebox.askyesno("確認", "選択された行を削除しますか？"):
-            for item in selected:
-                self.tree.delete(item)
-    
-    def select_all(self):
-        """すべての行を選択"""
-        self.tree.selection_set(self.tree.get_children())
-    
-    def show_statistics_window(self):
-        """統計ウィンドウを表示"""
-        StatisticsWindow(self.root, self.tree)
-    
-    def update_url_list(self, urls: List[str]):
-        """URLリストを更新"""
-        self.url_text.delete('1.0', tk.END)
-        self.url_text.insert('1.0', ''.join(urls))
-    
     def start_scraping(self):
         """スクレイピングを開始"""
         # 既存のデータをクリア
         for item in self.tree.get_children():
             self.tree.delete(item)
-        logging.info("Treeview をクリアしました")
+        self.total_chars_label.config(text="合計文字数: 0")
+        logging.info("結果をクリアしました")
 
         urls = [url.strip() for url in self.url_text.get('1.0', tk.END).splitlines() if url.strip()]
         if not urls:
@@ -412,6 +98,567 @@ class ThreadScraperGUI:
 
         # 結果の更新を開始
         self.update_results()
+    
+    def create_main_frame(self):
+        """メインフレームの作成"""
+        self.main_frame = ttk.Frame(self.root, padding="10")
+        self.main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # グリッド設定
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        self.main_frame.columnconfigure(1, weight=1)
+        
+        # 各行の重みを設定
+        # self.main_frame.rowconfigure(0, weight=1)  # URL入力
+        # self.main_frame.rowconfigure(1, weight=1)  # オプション設定
+        self.main_frame.rowconfigure(2, weight=1)  # 進捗状況
+        self.main_frame.rowconfigure(3, weight=8)  # 結果表示エリア - ここを大きく
+    
+    def create_url_input(self):
+        """URL入力エリアの作成"""
+        url_frame = ttk.LabelFrame(self.main_frame, text="URL入力", padding="2")
+        url_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        # URLテキストエリア
+        self.url_text = scrolledtext.ScrolledText(url_frame, height=5)
+        self.url_text.grid(row=0, column=0, padx=5, pady=5, sticky=(tk.W, tk.E))
+        
+        # ボタンフレーム
+        button_frame = ttk.Frame(url_frame)
+        button_frame.grid(row=0, column=1, padx=5, pady=5)
+        
+        self.start_button = ttk.Button(
+            button_frame,
+            text="スクレイピング開始",
+            command=self.start_scraping
+        )
+        self.start_button.grid(row=0, column=0, pady=2)
+        
+        self.stop_button = ttk.Button(
+            button_frame,
+            text="停止",
+            command=self.stop_scraping,
+            state=tk.DISABLED
+        )
+        self.stop_button.grid(row=1, column=0, pady=2)
+    
+    def create_options(self):
+        """オプションエリアの作成"""
+        options_frame = ttk.LabelFrame(self.main_frame, text="オプション設定", padding="5")
+        options_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        # 基本設定用のフレーム
+        basic_frame = ttk.Frame(options_frame)
+        basic_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        
+        # 同時実行数
+        ttk.Label(basic_frame, text="同時実行数:").grid(row=0, column=0, padx=5)
+        self.workers_var = tk.StringVar(value="3")
+        ttk.Spinbox(
+            basic_frame,
+            from_=1,
+            to=10,
+            width=5,
+            textvariable=self.workers_var
+        ).grid(row=0, column=1, padx=5)
+        
+        # 待機時間
+        ttk.Label(basic_frame, text="待機時間(秒):").grid(row=0, column=2, padx=5)
+        self.delay_var = tk.StringVar(value="1.0")
+        ttk.Spinbox(
+            basic_frame,
+            from_=0.0,
+            to=10.0,
+            increment=0.1,
+            width=5,
+            textvariable=self.delay_var
+        ).grid(row=0, column=3, padx=5)
+        
+        # 最小文字数
+        ttk.Label(basic_frame, text="最小文字数:").grid(row=0, column=4, padx=5)
+        self.min_length_var = tk.StringVar(value="0")
+        ttk.Spinbox(
+            basic_frame,
+            from_=0,
+            to=1000,
+            width=5,
+            textvariable=self.min_length_var
+        ).grid(row=0, column=5, padx=5)
+
+        # テキスト処理オプション用のフレーム
+        text_options_frame = ttk.LabelFrame(options_frame, text="テキスト処理オプション", padding="5")
+        text_options_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
+
+        # 23文字改行オプション
+        self.line_break_var = tk.BooleanVar(value=False)
+        self.line_break_check = ttk.Checkbutton(
+            text_options_frame,
+            text="23文字で改行する",
+            variable=self.line_break_var
+        )
+        self.line_break_check.grid(row=0, column=0, padx=5, sticky=tk.W)
+
+        # スクレイピング開始時に改行オプションを反映させるための設定
+        def update_line_break(*args):
+            if hasattr(self, 'scraper'):
+                self.scraper.set_line_break_option(self.line_break_var.get())
+
+        self.line_break_var.trace_add('write', update_line_break)
+    
+    def create_progress_area(self):
+        """進捗表示エリアの作成"""
+        progress_frame = ttk.LabelFrame(self.main_frame, text="進捗状況", padding="5")
+        progress_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(
+            progress_frame,
+            variable=self.progress_var,
+            mode='determinate'
+        )
+        self.progress_bar.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=5, pady=5)
+        
+        self.status_label = ttk.Label(progress_frame, text="待機中")
+        self.status_label.grid(row=1, column=0, sticky=tk.W, padx=5)
+   
+    def create_results_area(self):
+        """結果表示エリアの作成"""
+        self.results_frame = ttk.LabelFrame(self.main_frame, text="スクレイピング結果", padding="5")
+        self.results_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+
+        # スクロール可能なフレームを作成
+        self.tree_frame = ttk.Frame(self.results_frame)
+        self.tree_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+        
+        # Treeviewの作成（最初に作成）
+        columns = ('num', 'content', 'chars')
+        self.tree = ttk.Treeview(
+            self.tree_frame,
+            columns=columns,
+            show='headings',
+            selectmode='extended',
+            height=100
+        )
+
+        # スタイル設定
+        style = ttk.Style()
+        style.configure('Treeview', rowheight=50)
+
+        # 列のヘッダー設定
+        self.tree.heading('num', text='番号')
+        self.tree.heading('content', text='発言内容')
+        self.tree.heading('chars', text='文字数')
+
+        # 列の幅と配置
+        self.tree.column('num', width=50, minwidth=50, anchor=tk.W)
+        self.tree.column('content', width=800, minwidth=200, anchor=tk.W, stretch=True)
+        self.tree.column('chars', width=70, minwidth=70, anchor=tk.E)
+
+        # 上部フレーム（FilterFrameより後に作成）
+        top_frame = ttk.Frame(self.results_frame)
+        top_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+
+        self.filter_frame = FilterFrame(top_frame, self.tree)  # treeが作成された後に初期化
+        self.filter_frame.pack(side='left', fill='x', expand=True)
+
+        self.total_chars_label = ttk.Label(top_frame, text="合計文字数: 0")
+        self.total_chars_label.pack(side='right', padx=5)
+
+        # スクロールバーの設定
+        self.vsb = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview)
+        self.hsb = ttk.Scrollbar(self.results_frame, orient="horizontal", command=self.tree.xview)
+        
+        # Treeviewとスクロールバーの関連付け
+        self.tree.configure(yscrollcommand=self.vsb.set, xscrollcommand=self.hsb.set)
+        
+        # グリッドの設定
+        self.tree_frame.columnconfigure(0, weight=1)
+        self.tree_frame.rowconfigure(0, weight=1)
+        
+        self.tree.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+        self.vsb.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.hsb.grid(row=2, column=0, sticky=(tk.E, tk.W))
+
+        # ボタンフレーム
+        button_frame = ttk.Frame(self.results_frame)
+        button_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        ttk.Button(
+            button_frame,
+            text="CSVとして出力",
+            command=lambda: self.export_results("csv")
+        ).pack(side='left', padx=5)
+        
+        ttk.Button(
+            button_frame,
+            text="Excelとして出力",
+            command=lambda: self.export_results("excel")
+        ).pack(side='left', padx=5)
+
+        # グリッド設定
+        self.results_frame.columnconfigure(0, weight=1)
+        self.results_frame.rowconfigure(1, weight=3)
+
+        # テキスト折り返しの設定
+        def fixed_map(option):
+            return [elm for elm in style.map('Treeview', query_opt=option) if elm[:2] != ('!disabled', '!selected')]
+        style.map('Treeview', foreground=fixed_map('foreground'), background=fixed_map('background'))
+
+        def wrap_text(text, width=50):
+            """テキストを指定幅で折り返し"""
+            lines = text.split('\n')
+            wrapped_lines = []
+            for line in lines:
+                while len(line) > width:
+                    idx = line.rfind(' ', 0, width)
+                    if idx == -1:
+                        idx = width
+                    wrapped_lines.append(line[:idx])
+                    line = line[idx:].lstrip()
+                wrapped_lines.append(line)
+            return '\n'.join(wrapped_lines)
+
+        # カスタムinsertの設定
+        original_insert = self.tree.insert
+        def custom_insert(parent='', index='end', **kw):
+            if 'values' in kw:
+                values = list(kw['values'])
+                if len(values) > 1:
+                    values[1] = wrap_text(str(values[1]))
+                    kw['values'] = tuple(values)
+            return original_insert(parent, index, **kw)
+
+        self.tree.insert = custom_insert
+
+        # コンテキストメニューのバインド
+        self.tree.bind("<Button-3>", self.show_context_menu)
+
+        # キーボードショートカットによるコピー機能を追加
+        self.tree.bind('<Control-c>', self.copy_selected)
+        self.tree.bind('<Command-c>', self.copy_selected)  # Mac用
+
+        # 選択してコピーできるようにする
+        self.tree.bind('<Button-1>', self.on_tree_click)
+        
+        # 右クリックメニューを有効にする
+        self.tree.bind("<Button-3>", self.show_context_menu)
+
+        # コンテキストメニューの作成
+        self.context_menu = tk.Menu(self.tree, tearoff=0)
+        self.context_menu.add_command(label="コピー", command=lambda: self.copy_selected(None))
+        self.context_menu.add_command(label="選択行を削除", command=self.delete_selected)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="すべて選択", command=self.select_all)
+
+    def update_results(self):
+        """結果を更新"""
+        try:
+            while True:
+                try:
+                    msg_type, data = self.result_queue.get_nowait()
+                    
+                    if msg_type == 'result':
+                        logging.info(f"結果をツリーに追加: {data}")
+                        
+                        content = str(data['content'])
+                        values = (
+                            str(data['num']),
+                            content,
+                            len(content)
+                        )
+                        
+                        try:
+                            self.tree.insert('', tk.END, values=values)
+                            self.update_total_chars()  # 確実に呼び出し
+                            logging.info(f"Treeview に追加完了: {values}")
+                        except Exception as e:
+                            logging.error(f"Treeview 追加エラー: {e}, データ: {values}")
+                        
+                        self.progress_var.set(self.progress_var.get() + 1)
+                        self.tree.see(self.tree.get_children()[-1])
+                        
+                    elif msg_type == 'error':
+                        logging.error(f"エラーメッセージを受信: {data}")
+                        messagebox.showerror("エラー", f"スクレイピング中にエラー: {data}")
+                        self.stop_scraping()
+                        return
+                        
+                    elif msg_type == 'finished':
+                        logging.info("スクレイピング完了")
+                        self.finish_scraping()
+                        return
+                        
+                except queue.Empty:
+                    break
+            
+            # 次の更新をスケジュール
+            if self.is_scraping:
+                self.root.after(100, self.update_results)
+                
+        except Exception as e:
+            logging.error(f"結果更新中にエラー: {e}", exc_info=True)
+            messagebox.showerror("エラー", f"結果更新中にエラー: {e}")
+            self.stop_scraping()
+
+    def copy_selected(self, event=None):
+        """選択された項目をコピー"""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            return
+        
+        # 選択された行のデータを取得
+        rows = []
+        for item in selected_items:
+            values = self.tree.item(item)['values']
+            rows.append('\t'.join(str(v) for v in values))
+        
+        # クリップボードにコピー
+        text = '\n'.join(rows)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
+    def update_total_chars(self):
+        """合計文字数を更新"""
+        total = 0
+        for item in self.tree.get_children():
+            values = self.tree.item(item)['values']
+            if values and len(values) > 2:  # 文字数は3番目の列
+                try:
+                    total += int(values[2])
+                except (ValueError, TypeError):
+                    continue
+        
+        # 合計を表示（3桁区切りで）
+        self.total_chars_label.config(text=f"合計文字数: {total:,}")
+
+    # メニューの作成メソッドを追加
+    def create_menu(self):
+        """メニューバーの作成"""
+        self.menubar = tk.Menu(self.root)
+        self.root.config(menu=self.menubar)
+        
+        # ファイルメニュー
+        file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="ファイル", menu=file_menu)
+        file_menu.add_command(label="URLリストを開く", command=self.load_url_list)
+        file_menu.add_command(label="結果を保存", command=self.save_results)
+        file_menu.add_separator()
+        file_menu.add_command(label="終了", command=self.root.quit)
+        
+        # ツールメニュー
+        tools_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="ツール", menu=tools_menu)
+        tools_menu.add_command(label="プロキシ設定", command=self.show_proxy_settings)
+        tools_menu.add_command(label="一般設定", command=self.show_settings)
+    
+    def export_results(self, format_type: str):
+        """結果をエクスポート"""
+        if not self.tree.get_children():
+            messagebox.showerror("エラー", "エクスポートする結果がありません。")
+            return
+
+        if format_type == "csv":
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSVファイル", "*.csv")],
+                title="CSVとして保存"
+            )
+            if file_path:
+                try:
+                    data = []
+                    for item in self.tree.get_children():
+                        values = self.tree.item(item)['values']
+                        data.append({
+                            '番号': values[0],
+                            '発言内容': values[1],
+                            '文字数': values[2]
+                        })
+                    
+                    with open(file_path, 'w', encoding='utf-8', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=['番号', '発言内容', '文字数'])
+                        writer.writeheader()
+                        writer.writerows(data)
+                    
+                    messagebox.showinfo("完了", "CSVファイルを保存しました")
+                    
+                except Exception as e:
+                    logging.error(f"CSVファイルの保存に失敗: {e}")
+                    messagebox.showerror("エラー", f"ファイルの保存に失敗しました: {e}")
+
+        elif format_type == "excel":
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excelファイル", "*.xlsx")],
+                title="Excelとして保存"
+            )
+            if file_path:
+                try:
+                    data = []
+                    for item in self.tree.get_children():
+                        values = self.tree.item(item)['values']
+                        data.append({
+                            '番号': values[0],
+                            '発言内容': values[1],
+                            '文字数': values[2]
+                        })
+                    
+                    df = pd.DataFrame(data)
+                    df.to_excel(file_path, index=False)
+                    
+                    messagebox.showinfo("完了", "Excelファイルを保存しました")
+                    
+                except Exception as e:
+                    logging.error(f"Excelファイルの保存に失敗: {e}")
+                    messagebox.showerror("エラー", f"ファイルの保存に失敗しました: {e}")
+
+    def _export_to_csv(self, file_path: str):
+        """CSVとしてエクスポート"""
+        try:
+            text_content = self.results_text.get('1.0', tk.END)
+            results = self._parse_results(text_content)
+            
+            with open(file_path, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['番号', '内容', '文字数'])
+                for result in results:
+                    writer.writerow([result['number'], result['content'], result['chars']])
+            
+            messagebox.showinfo("完了", "CSVファイルを保存しました")
+        except Exception as e:
+            messagebox.showerror("エラー", f"保存中にエラーが発生しました: {e}")
+
+    def _parse_results(self, text_content: str) -> List[Dict]:
+        """テキスト内容をパースして結果のリストを返す"""
+        results = []
+        lines = text_content.split('\n')
+        current_result = {}
+        content_lines = []
+        
+        for line in lines:
+            if line.startswith('【'):
+                # 新しい結果の開始
+                if current_result and content_lines:
+                    current_result['content'] = '\n'.join(content_lines)
+                    results.append(current_result)
+                    content_lines = []
+                
+                # 番号と文字数を抽出
+                number = line[line.find('【')+1:line.find('】')]
+                chars = int(line[line.find('(')+1:line.find('文字')])
+                current_result = {'number': number, 'chars': chars}
+            elif line.startswith('-' * 80):
+                # 区切り線は無視
+                continue
+            else:
+                # 内容行
+                content_lines.append(line.strip())
+        
+        # 最後の結果を追加
+        if current_result and content_lines:
+            current_result['content'] = '\n'.join(content_lines)
+            results.append(current_result)
+        
+        return results
+    
+    # プロキシ設定を表示するメソッドを追加
+    def show_proxy_settings(self):
+        """プロキシ設定ダイアログを表示"""
+        dialog = ProxyDialog(self.root, self.proxy_manager)
+        self.root.wait_window(dialog.dialog)
+        
+        if dialog.result:
+            # スクレイパーのセッションを更新
+            self.scraper.update_session(self.proxy_manager.get_session())
+
+    
+    def create_context_menu(self):
+        """コンテキストメニューの作成"""
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="コピー", command=lambda: self.copy_selected(None))
+        self.context_menu.add_command(label="選択行を削除", command=self.delete_selected)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="すべて選択", command=self.select_all)
+        
+        self.tree.bind("<Button-3>", self.show_context_menu)
+
+    def copy_selection(self, event=None):
+        """選択された項目をコピー"""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            return
+            
+        copy_text = []
+        for item in selected_items:
+            values = self.tree.item(item)['values']
+            # タブ区切りでテキストを作成
+            copy_text.append('\t'.join(str(x) for x in values))
+        
+        # クリップボードにコピー
+        self.root.clipboard_clear()
+        self.root.clipboard_append('\n'.join(copy_text))
+        
+    def copy_cell_content(self):
+        # 現在選択されているセルの内容をコピー
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        column = self.tree.identify_column(self.last_clicked_x)  # 最後にクリックした列を特定
+        col_num = int(column.replace('#', '')) - 1
+        cell_value = self.tree.item(selected[0])['values'][col_num]
+        
+        self.root.clipboard_clear()
+        self.root.clipboard_append(str(cell_value))
+
+    def copy_selected_rows(self):
+        # 選択された行全体をコピー
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        text = []
+        for item in selected:
+            values = self.tree.item(item)['values']
+            text.append('\t'.join(str(x) for x in values))
+        
+        self.root.clipboard_clear()
+        self.root.clipboard_append('\n'.join(text))
+
+    # マウスクリック位置を記録
+    def on_tree_click(self, event):
+        self.last_clicked_x = event.x
+        self.last_clicked_y = event.y
+        
+    def show_context_menu(self, event):
+        """コンテキストメニューを表示"""
+        self.context_menu.post(event.x_root, event.y_root)
+
+    
+    def delete_selected(self):
+        """選択された行を削除"""
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        if messagebox.askyesno("確認", "選択された行を削除しますか？"):
+            for item in selected:
+                self.tree.delete(item)
+    
+    def select_all(self):
+        """すべての行を選択"""
+        self.tree.selection_set(self.tree.get_children())
+    
+    def show_statistics_window(self):
+        """統計ウィンドウを表示"""
+        StatisticsWindow(self.root, self.tree)
+    
+    def update_url_list(self, urls: List[str]):
+        """URLリストを更新"""
+        self.url_text.delete('1.0', tk.END)
+        self.url_text.insert('1.0', ''.join(urls))
+    
+
         
     
     def scraping_thread(self, urls: List[str], max_workers: int, delay: float, min_length: int):
@@ -448,65 +695,7 @@ class ThreadScraperGUI:
             logging.error(f"スクレイピング中にエラー: {e}")
             self.result_queue.put(('error', str(e)))
     
-    def update_results(self):
-        """結果を更新"""
-        try:
-            items_processed = False
-            
-            while True:
-                try:
-                    msg_type, data = self.result_queue.get_nowait()
-                    
-                    if msg_type == 'result':
-                        # データの形式をログ出力
-                        logging.info(f"結果をツリーに追加: {data}")
-                        
-                        # Treeview に結果を追加
-                        values = (
-                            str(data['num']),
-                            str(data['content']),
-                            len(str(data['content']))
-                        )
-                        
-                        try:
-                            self.tree.insert('', tk.END, values=values)
-                            items_processed = True
-                            logging.info(f"Treeview に追加完了: {values}")
-                        except Exception as e:
-                            logging.error(f"Treeview 追加エラー: {e}, データ: {values}")
-                        
-                        # プログレスバーを更新
-                        self.progress_var.set(self.progress_var.get() + 1)
-                        
-                    elif msg_type == 'error':
-                        logging.error(f"エラーメッセージを受信: {data}")
-                        messagebox.showerror("エラー", f"スクレイピング中にエラー: {data}")
-                        self.stop_scraping()
-                        return
-                        
-                    elif msg_type == 'finished':
-                        logging.info("スクレイピング完了")
-                        self.finish_scraping()
-                        return
-                        
-                except queue.Empty:
-                    break
-                
-            # 表示を更新
-            if items_processed:
-                self.tree.update_idletasks()
-                if self.tree.get_children():
-                    last_item = self.tree.get_children()[-1]
-                    self.tree.see(last_item)
-                
-            # 処理を継続
-            if self.is_scraping:
-                self.root.after(100, self.update_results)
-                
-        except Exception as e:
-            logging.error(f"結果更新中にエラー: {e}", exc_info=True)
-            messagebox.showerror("エラー", f"結果更新中にエラー: {e}")
-            self.stop_scraping()
+
 
     def finish_scraping(self):
         """スクレイピングの終了処理"""
@@ -575,14 +764,11 @@ class ThreadScraperGUI:
     
     def clear_results(self):
         """結果をクリア"""
-        if not self.tree.get_children():
-            return
-            
-        if messagebox.askyesno("確認", "すべての結果をクリアしますか？"):
-            for item in self.tree.get_children():
-                self.tree.delete(item)
-            logging.info("結果をクリアしました")
-    
+        self.results_text.configure(state='normal')
+        self.results_text.delete('1.0', tk.END)
+        self.results_text.configure(state='disabled')
+        self.total_chars_label.config(text="合計文字数: 0")
+        
     def on_closing(self):
         """アプリケーション終了時の処理"""
         if self.is_scraping:
@@ -640,14 +826,14 @@ class ThreadScraperGUI:
                 logging.error(f"URLリストの読み込みに失敗: {e}")
                 messagebox.showerror("エラー", f"ファイルの読み込みに失敗しました: {e}")
 
+
     def save_results(self):
         """結果を保存"""
         if not self.tree.get_children():
             messagebox.showerror("エラー", "保存する結果がありません。")
             return
-            
-        if hasattr(self, 'export_manager'):
-            self.export_manager.show_export_dialog()
+        
+        self.export_results("excel")  # または "csv"
 
     def show_settings(self):
         """一般設定ダイアログを表示"""
