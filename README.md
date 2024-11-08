@@ -41,3 +41,8 @@ black src/ tests/
 ```bash
 flake8 src/ tests/
 ```
+
+### 実行
+```bash
+PYTHONPATH=$PWD python src/main.py
+```
