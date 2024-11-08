@@ -13,6 +13,8 @@ from typing import List, Optional
 from tkinter import ttk, scrolledtext, messagebox, filedialog  # filedialogを追加
 from .components.settings_dialog import SettingsDialog  # 追加
 import time
+import csv
+import pandas as pd
 
 from .components.menu import MainMenu
 from .components.export import ExportManager
@@ -48,6 +50,9 @@ class ThreadScraperGUI:
         self.create_options()
         self.create_progress_area()
         self.create_results_area()  # Treeviewの作成
+
+        # エクスポートマネージャーの初期化
+        self.export_manager = ExportManager(self.main_frame, self.tree)
         
         # コンテキストメニューの作成
         self.create_context_menu()
@@ -158,6 +163,7 @@ class ThreadScraperGUI:
         self.tree_frame = ttk.Frame(self.results_frame)
         self.tree_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
         
+        # Treeviewの作成
         columns = ('num', 'content', 'chars')
         self.tree = ttk.Treeview(
             self.tree_frame,
@@ -190,27 +196,31 @@ class ThreadScraperGUI:
         self.tree.column('content', width=800, minwidth=200, anchor=tk.W)
         self.tree.column('chars', width=70, minwidth=70, anchor=tk.E)
         
-        # スクロールバーの設定
-        vsb = ttk.Scrollbar(self.results_frame, orient="vertical", command=self.tree.yview)
-        hsb = ttk.Scrollbar(self.results_frame, orient="horizontal", command=self.tree.xview)
-        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        
-        # コンポーネントの配置
-        self.tree.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        vsb.grid(row=1, column=1, sticky=(tk.N, tk.S))
-        hsb.grid(row=2, column=0, sticky=(tk.E, tk.W))
-        
-        # グリッドの設定
-        self.results_frame.columnconfigure(0, weight=1)
-        self.results_frame.rowconfigure(1, weight=1)
-        
-        # フィルターフレームの作成と配置
+        # フィルターフレームの作成と配置（最上部）
         self.filter_frame = FilterFrame(self.results_frame, self.tree)
         self.filter_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        # ここの'd'を削除
         
-        # 列の重みを設定
+        # ボタンフレーム（最下部）
+        button_frame = ttk.Frame(self.results_frame)
+        button_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        # エクスポートボタン
+        ttk.Button(
+            button_frame,
+            text="CSVとして出力",
+            command=lambda: self.export_results("csv")
+        ).pack(side='left', padx=5)
+        
+        ttk.Button(
+            button_frame,
+            text="Excelとして出力",
+            command=lambda: self.export_results("excel")
+        ).pack(side='left', padx=5)
+        
+        # グリッドの重みを設定
         self.results_frame.columnconfigure(0, weight=1)
-        self.results_frame.rowconfigure(1, weight=1)
+        self.results_frame.rowconfigure(1, weight=1)  # Treeframeに重みを設定
         
         # テスト用のデータを追加（デバッグ時のみ）
         self.tree.insert('', tk.END, values=('テスト', 'これはテストデータです', '10'))
@@ -234,6 +244,71 @@ class ThreadScraperGUI:
         self.menubar.add_cascade(label="ツール", menu=tools_menu)
         tools_menu.add_command(label="プロキシ設定", command=self.show_proxy_settings)
         tools_menu.add_command(label="一般設定", command=self.show_settings)
+    
+    def export_results(self, format_type: str):
+        """結果をエクスポート
+        Args:
+            format_type (str): "csv" または "excel"
+        """
+        if not self.tree.get_children():
+            messagebox.showerror("エラー", "エクスポートする結果がありません。")
+            return
+
+        if format_type == "csv":
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSVファイル", "*.csv")],
+                title="CSVとして保存"
+            )
+            if file_path:
+                try:
+                    data = []
+                    for item in self.tree.get_children():
+                        values = self.tree.item(item)['values']
+                        data.append({
+                            '番号': values[0],
+                            '発言内容': values[1],
+                            '文字数': values[2]
+                        })
+                    
+                    with open(file_path, 'w', encoding='utf-8', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=['番号', '発言内容', '文字数'])
+                        writer.writeheader()
+                        writer.writerows(data)
+                    
+                    messagebox.showinfo("完了", "CSVファイルを保存しました")
+                    logging.info(f"CSVファイルを保存: {file_path}")
+                    
+                except Exception as e:
+                    logging.error(f"CSVファイルの保存に失敗: {e}")
+                    messagebox.showerror("エラー", f"ファイルの保存に失敗しました: {e}")
+
+        elif format_type == "excel":
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excelファイル", "*.xlsx")],
+                title="Excelとして保存"
+            )
+            if file_path:
+                try:
+                    data = []
+                    for item in self.tree.get_children():
+                        values = self.tree.item(item)['values']
+                        data.append({
+                            '番号': values[0],
+                            '発言内容': values[1],
+                            '文字数': values[2]
+                        })
+                    
+                    df = pd.DataFrame(data)
+                    df.to_excel(file_path, index=False)
+                    
+                    messagebox.showinfo("完了", "Excelファイルを保存しました")
+                    logging.info(f"Excelファイルを保存: {file_path}")
+                    
+                except Exception as e:
+                    logging.error(f"Excelファイルの保存に失敗: {e}")
+                    messagebox.showerror("エラー", f"ファイルの保存に失敗しました: {e}")
     
     # プロキシ設定を表示するメソッドを追加
     def show_proxy_settings(self):
@@ -410,10 +485,7 @@ class ThreadScraperGUI:
                         return
                         
                     elif msg_type == 'finished':
-                        if items_processed:
-                            logging.info("スクレイピング完了")
-                        else:
-                            messagebox.showwarning("警告", "結果が0件でした")
+                        logging.info("スクレイピング完了")
                         self.finish_scraping()
                         return
                         
@@ -436,35 +508,24 @@ class ThreadScraperGUI:
             messagebox.showerror("エラー", f"結果更新中にエラー: {e}")
             self.stop_scraping()
 
-    def add_test_data(self):
-        """テスト用データを追加（デバッグ用）"""
-        test_data = [
-            ("1", "テストデータ1", "10"),
-            ("2", "テストデータ2", "15"),
-            ("3", "テストデータ3", "20"),
-        ]
-        for values in test_data:
-            self.tree.insert('', tk.END, values=values)
-        logging.info("テストデータを追加しました")
+    def finish_scraping(self):
+        """スクレイピングの終了処理"""
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+        self.url_text.config(state=tk.NORMAL)
+        
+        total_results = len(self.tree.get_children())
+        self.status_label.config(text=f"完了 - {total_results}件の結果")
+        
+        if total_results > 0:
+            logging.info(f"スクレイピング完了: {total_results}件の結果を取得")
 
     def stop_scraping(self):
         """スクレイピングを停止"""
         self.is_scraping = False
         self.status_label.config(text="停止中...")
         self.finish_scraping()
-    
-    def finish_scraping(self):
-            """スクレイピングの終了処理"""
-            self.start_button.config(state=tk.NORMAL)
-            self.stop_button.config(state=tk.DISABLED)
-            self.url_text.config(state=tk.NORMAL)
-            
-            total_results = len(self.tree.get_children())
-            self.status_label.config(text=f"完了 - {total_results}件の結果")
-            
-            if total_results > 0:
-                logging.info(f"スクレイピング完了: {total_results}件の結果を取得")
-                self.show_completion_dialog(total_results)
+
     
     def show_completion_dialog(self, total_results: int):
         """完了ダイアログを表示"""
@@ -605,3 +666,7 @@ class ThreadScraperGUI:
 if __name__ == "__main__":
     app = ThreadScraperGUI()
     app.run()
+
+
+
+
