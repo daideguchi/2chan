@@ -23,6 +23,8 @@ from .components.log_window import LogWindow
 from ..scraper.core import Scraper, ScrapingResult
 from ..config.settings import SettingsManager
 from typing import List, Optional, Dict 
+import openpyxl
+from openpyxl.styles import Alignment
 
 class ThreadScraperGUI:
     def __init__(self):
@@ -250,10 +252,10 @@ class ThreadScraperGUI:
         self.tree.heading('content', text='発言内容')
         self.tree.heading('chars', text='文字数')
 
-        # 列の幅と配置
-        self.tree.column('num', width=50, minwidth=50, anchor=tk.W)
-        self.tree.column('content', width=800, minwidth=200, anchor=tk.W, stretch=True)
-        self.tree.column('chars', width=70, minwidth=70, anchor=tk.E)
+        # 列の幅と配置を調整
+        self.tree.column('num', width=50, minwidth=50, anchor=tk.E, stretch=False)  # 右寄せ、固定幅
+        self.tree.column('content', width=1000, minwidth=200, anchor=tk.W, stretch=True)  # 左寄せ、可変幅
+        self.tree.column('chars', width=70, minwidth=70, anchor=tk.E, stretch=False)  # 右寄せ、固定幅
 
         # 上部フレーム（FilterFrameより後に作成）
         top_frame = ttk.Frame(self.results_frame)
@@ -363,9 +365,9 @@ class ThreadScraperGUI:
                         
                         content = str(data['content'])
                         values = (
-                            str(data['num']),
-                            content,
-                            len(content)
+                        str(data['num']).strip(),  # 番号
+                        content.strip(),           # 発言内容
+                        str(len(content))  
                         )
                         
                         try:
@@ -408,15 +410,24 @@ class ThreadScraperGUI:
             return
         
         # 選択された行のデータを取得
-        rows = []
+        rows_data = []
         for item in selected_items:
             values = self.tree.item(item)['values']
-            rows.append('\t'.join(str(v) for v in values))
+            if not values or len(values) < 3:
+                continue
+            
+            # 内容の改行を「改行+""」に置換して、Excelでセル内改行として認識させる
+            content = str(values[1]).replace('\n', '\n')
+            
+            # 1行のデータとして結合（ダブルクォートで囲む）
+            row_data = f'{values[0]}\t"{content}"\t{values[2]}'
+            rows_data.append(row_data)
         
-        # クリップボードにコピー
-        text = '\n'.join(rows)
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
+        if rows_data:
+            # ヘッダーを追加
+            text = "番号\t発言内容\t文字数\n" + "\n".join(rows_data)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
 
     def update_total_chars(self):
         """合計文字数を更新"""
@@ -458,35 +469,7 @@ class ThreadScraperGUI:
             messagebox.showerror("エラー", "エクスポートする結果がありません。")
             return
 
-        if format_type == "csv":
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".csv",
-                filetypes=[("CSVファイル", "*.csv")],
-                title="CSVとして保存"
-            )
-            if file_path:
-                try:
-                    data = []
-                    for item in self.tree.get_children():
-                        values = self.tree.item(item)['values']
-                        data.append({
-                            '番号': values[0],
-                            '発言内容': values[1],
-                            '文字数': values[2]
-                        })
-                    
-                    with open(file_path, 'w', encoding='utf-8', newline='') as f:
-                        writer = csv.DictWriter(f, fieldnames=['番号', '発言内容', '文字数'])
-                        writer.writeheader()
-                        writer.writerows(data)
-                    
-                    messagebox.showinfo("完了", "CSVファイルを保存しました")
-                    
-                except Exception as e:
-                    logging.error(f"CSVファイルの保存に失敗: {e}")
-                    messagebox.showerror("エラー", f"ファイルの保存に失敗しました: {e}")
-
-        elif format_type == "excel":
+        if format_type == "excel":
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
                 filetypes=[("Excelファイル", "*.xlsx")],
@@ -494,18 +477,41 @@ class ThreadScraperGUI:
             )
             if file_path:
                 try:
-                    data = []
+                    # 新しいワークブックとシートを作成
+                    wb = openpyxl.Workbook()
+                    ws = wb.active
+                    
+                    # ヘッダーを追加
+                    ws.append(['番号', '発言内容', '文字数'])
+                    
+                    # データを追加
                     for item in self.tree.get_children():
                         values = self.tree.item(item)['values']
-                        data.append({
-                            '番号': values[0],
-                            '発言内容': values[1],
-                            '文字数': values[2]
-                        })
+                        # 改行を明示的に \n として保持
+                        content = str(values[1]).replace('\r\n', '\n').replace('\r', '\n')
+                        ws.append([values[0], content, values[2]])
                     
-                    df = pd.DataFrame(data)
-                    df.to_excel(file_path, index=False)
+                    # セルの書式設定
+                    for row in ws.iter_rows(min_row=2):  # ヘッダー行をスキップ
+                        # 発言内容のセル（2列目）
+                        content_cell = row[1]
+                        content_cell.alignment = openpyxl.styles.Alignment(
+                            wrap_text=True,
+                            vertical='top'
+                        )
+                        
+                        # 行の高さを調整
+                        if content_cell.value:
+                            num_lines = content_cell.value.count('\n') + 1
+                            ws.row_dimensions[content_cell.row].height = max(15 * num_lines, 20)
                     
+                    # 列幅の調整
+                    ws.column_dimensions['A'].width = 10  # 番号列
+                    ws.column_dimensions['B'].width = 100  # 発言内容列
+                    ws.column_dimensions['C'].width = 10  # 文字数列
+                    
+                    # ファイルを保存
+                    wb.save(file_path)
                     messagebox.showinfo("完了", "Excelファイルを保存しました")
                     
                 except Exception as e:
