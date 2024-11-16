@@ -1,0 +1,4 @@
+scraper:
+  delay: 1.0
+  max_workers: 3
+  min_length: 0
